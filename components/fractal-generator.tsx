@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 // Fractal types
 const FRACTAL_TYPES = {
@@ -13,6 +14,8 @@ const FRACTAL_TYPES = {
   JULIA: "julia",
   BURNING_SHIP: "burning-ship",
   SIERPINSKI: "sierpinski",
+  IFS_FERN: "ifs-fern",
+  NEWTON: "newton"
 }
 
 export default function FractalGenerator() {
@@ -23,13 +26,14 @@ export default function FractalGenerator() {
   const [centerX, setCenterX] = useState(0)
   const [centerY, setCenterY] = useState(0)
   const [juliaConstant, setJuliaConstant] = useState({ x: -0.7, y: 0.27 })
-  const [colorScheme, setColorScheme] = useState("rainbow")
   const [primaryColor, setPrimaryColor] = useState("#ff0000")
   const [secondaryColor, setSecondaryColor] = useState("#0000ff")
   const [isGenerating, setIsGenerating] = useState(false)
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [viewStart, setViewStart] = useState({ x: 0, y: 0 })
+  const [computationProgress, setComputationProgress] = useState(0)
 
   // Handle window resize
   useEffect(() => {
@@ -52,29 +56,32 @@ export default function FractalGenerator() {
     generateFractal()
   }, [canvasSize, fractalType])
 
-  // Mouse event handlers for canvas interaction
+  // Mouse drag handlers for panning or segmentify
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDragging(true)
+    setDragStart({ x: e.clientX, y: e.clientY })
+    setViewStart({ x: centerX, y: centerY })
+  }
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDragging) return
     const canvas = canvasRef.current
     if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-
-    // Convert click position to fractal coordinates
-    const xMin = centerX - 2.5 / zoom
-    const xMax = centerX + 2.5 / zoom
-    const yMin = centerY - 1.5 / zoom
-    const yMax = centerY + 1.5 / zoom
-
-    const newCenterX = xMin + ((xMax - xMin) * x) / canvas.width
-    const newCenterY = yMin + ((yMax - yMin) * y) / canvas.height
-
-    setCenterX(newCenterX)
-    setCenterY(newCenterY)
+    const dx = e.clientX - dragStart.x
+    const dy = e.clientY - dragStart.y
+    // Convert pixel movement to fractal coordinates
+    const scaleX = 5 / (zoom * canvas.width)
+    const scaleY = 3 / (zoom * canvas.height)
+    setCenterX(viewStart.x - dx * scaleX)
+    setCenterY(viewStart.y - dy * scaleY)
     generateFractal()
   }
 
+  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDragging(false)
+  }
+
+  // Mouse event handlers for canvas interaction
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault()
     const canvas = canvasRef.current
@@ -113,6 +120,7 @@ export default function FractalGenerator() {
     if (!canvas) return
 
     setIsGenerating(true)
+    setComputationProgress(0)
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
@@ -137,11 +145,18 @@ export default function FractalGenerator() {
       case FRACTAL_TYPES.SIERPINSKI:
         calculateSierpinski(data, canvas.width, canvas.height)
         break
+      case FRACTAL_TYPES.IFS_FERN:
+        calculateIFSFern(data, canvas.width, canvas.height)
+        break
+      case FRACTAL_TYPES.NEWTON:
+        calculateNewton(data, canvas.width, canvas.height)
+        break
     }
 
     // Put image data back to canvas
     ctx.putImageData(imageData, 0, 0)
     setIsGenerating(false)
+    setComputationProgress(100)
   }
 
   // Mandelbrot set calculation
@@ -250,11 +265,11 @@ export default function FractalGenerator() {
 
   // Sierpinski Triangle calculation
   const calculateSierpinski = (data: Uint8ClampedArray, width: number, height: number) => {
-    // Clear data
+    // Clear data with white background
     for (let i = 0; i < data.length; i += 4) {
-      data[i] = 0
-      data[i + 1] = 0
-      data[i + 2] = 0
+      data[i] = 255
+      data[i + 1] = 255
+      data[i + 2] = 255
       data[i + 3] = 255
     }
 
@@ -314,10 +329,9 @@ export default function FractalGenerator() {
       for (let y = minY; y <= maxY; y++) {
         if (isPointInTriangle(x, y, x1, y1, x2, y2, x3, y3)) {
           const i = (y * width + x) * 4
-          const color = getColor(iterations, iterations)
-          data[i] = color.r
-          data[i + 1] = color.g
-          data[i + 2] = color.b
+          data[i] = 0
+          data[i + 1] = 0
+          data[i + 2] = 0
           data[i + 3] = 255
         }
       }
@@ -336,12 +350,98 @@ export default function FractalGenerator() {
     y3: number,
   ) => {
     const area = 0.5 * Math.abs(x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
-
     const a1 = 0.5 * Math.abs(px * (y1 - y2) + x1 * (y2 - py) + x2 * (py - y1))
     const a2 = 0.5 * Math.abs(px * (y2 - y3) + x2 * (y3 - py) + x3 * (py - y2))
     const a3 = 0.5 * Math.abs(px * (y3 - y1) + x3 * (y1 - py) + x1 * (py - y3))
 
-    return Math.abs(area - (a1 + a2 + a3)) < 0.01
+    return Math.abs(area - (a1 + a2 + a3)) < 0.1
+  }
+
+  // IFS Fern calculation
+  const calculateIFSFern = (data: Uint8ClampedArray, width: number, height: number) => {
+    const maxPoints = iterations * 1000
+    let x = 0
+    let y = 0
+
+    // Scale and center the fern
+    const scale = Math.min(width, height) * 0.2
+    const offsetX = width / 2
+    const offsetY = height * 0.9
+
+    for (let i = 0; i < maxPoints; i++) {
+      const r = Math.random()
+      let newX, newY
+
+      if (r < 0.01) {
+        newX = 0
+        newY = 0.16 * y
+      } else if (r < 0.86) {
+        newX = 0.85 * x + 0.04 * y
+        newY = -0.04 * x + 0.85 * y + 1.6
+      } else if (r < 0.93) {
+        newX = 0.2 * x - 0.26 * y
+        newY = 0.23 * x + 0.22 * y + 1.6
+      } else {
+        newX = -0.15 * x + 0.28 * y
+        newY = 0.26 * x + 0.24 * y + 0.44
+      }
+
+      x = newX
+      y = newY
+
+      const pixelX = Math.floor(x * scale + offsetX)
+      const pixelY = Math.floor(-y * scale + offsetY)
+
+      if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
+        const i = (pixelY * width + pixelX) * 4
+        data[i] = 0
+        data[i + 1] = 255
+        data[i + 2] = 0
+        data[i + 3] = 255
+      }
+    }
+  }
+
+  // Newton fractal calculation
+  const calculateNewton = (data: Uint8ClampedArray, width: number, height: number) => {
+    const maxIter = iterations
+    const xMin = centerX - 2 / zoom
+    const xMax = centerX + 2 / zoom
+    const yMin = centerY - 1.5 / zoom
+    const yMax = centerY + 1.5 / zoom
+
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        let zx = xMin + ((xMax - xMin) * x) / width
+        let zy = yMin + ((yMax - yMin) * y) / height
+        let iter = 0
+
+        while (iter < maxIter) {
+          const zx2 = zx * zx
+          const zy2 = zy * zy
+          const zxzy = zx * zy
+          const denom = 3 * (zx2 + zy2) * (zx2 + zy2)
+
+          if (denom === 0) break
+
+          const newZx = (2 * zx * (zx2 - 3 * zy2) + 1) / denom
+          const newZy = (2 * zy * (3 * zx2 - zy2)) / denom
+
+          if (Math.abs(newZx - zx) < 1e-6 && Math.abs(newZy - zy) < 1e-6) break
+
+          zx = newZx
+          zy = newZy
+          iter++
+        }
+
+        const i = (y * width + x) * 4
+        const color = getColor(iter, maxIter)
+        data[i] = color.r
+        data[i + 1] = color.g
+        data[i + 2] = color.b
+        data[i + 3] = 255
+      }
+    }
   }
 
   // Color calculation based on iteration count
@@ -349,90 +449,8 @@ export default function FractalGenerator() {
     if (iter === maxIter) {
       return { r: 0, g: 0, b: 0 } // Black for points in the set
     }
-
-    const normalized = iter / maxIter
-
-    switch (colorScheme) {
-      case "rainbow":
-        return hsvToRgb(normalized * 360, 1, 1)
-      case "grayscale":
-        const val = Math.floor(normalized * 255)
-        return { r: val, g: val, b: val }
-      case "custom":
-        const primary = hexToRgb(primaryColor)
-        const secondary = hexToRgb(secondaryColor)
-        return {
-          r: Math.floor(primary.r * (1 - normalized) + secondary.r * normalized),
-          g: Math.floor(primary.g * (1 - normalized) + secondary.g * normalized),
-          b: Math.floor(primary.b * (1 - normalized) + secondary.b * normalized),
-        }
-      default:
-        return hsvToRgb(normalized * 360, 1, 1)
-    }
-  }
-
-  // HSV to RGB conversion
-  const hsvToRgb = (h: number, s: number, v: number) => {
-    let r = 0,
-      g = 0,
-      b = 0
-
-    const i = Math.floor(h / 60) % 6
-    const f = h / 60 - i
-    const p = v * (1 - s)
-    const q = v * (1 - f * s)
-    const t = v * (1 - (1 - f) * s)
-
-    switch (i) {
-      case 0:
-        r = v
-        g = t
-        b = p
-        break
-      case 1:
-        r = q
-        g = v
-        b = p
-        break
-      case 2:
-        r = p
-        g = v
-        b = t
-        break
-      case 3:
-        r = p
-        g = q
-        b = v
-        break
-      case 4:
-        r = t
-        g = p
-        b = v
-        break
-      case 5:
-        r = v
-        g = p
-        b = q
-        break
-    }
-
-    return {
-      r: Math.floor(r * 255),
-      g: Math.floor(g * 255),
-      b: Math.floor(b * 255),
-    }
-  }
-
-  // Hex to RGB conversion
-  const hexToRgb = (hex: string) => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-    return result
-      ? {
-          r: Number.parseInt(result[1], 16),
-          g: Number.parseInt(result[2], 16),
-          b: Number.parseInt(result[3], 16),
-        }
-      : { r: 0, g: 0, b: 0 }
+    const val = Math.floor((iter / maxIter) * 255)
+    return { r: val, g: val, b: val }
   }
 
   // Save the fractal as an image
@@ -460,18 +478,34 @@ export default function FractalGenerator() {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Fractal Canvas */}
       <div className="lg:col-span-2 bg-gray-800 rounded-lg p-4 flex flex-col items-center">
-        <div id="canvas-container" className="w-full relative overflow-hidden">
+        <div
+          id="canvas-container"
+          className="w-full relative overflow-auto rounded-lg border border-gray-700"
+          style={{ maxHeight: 700, maxWidth: 1200 }}
+        >
           <canvas
             ref={canvasRef}
             width={canvasSize.width}
             height={canvasSize.height}
-            className={`border border-gray-700 rounded-lg mx-auto ${isGenerating ? "opacity-50" : ""} cursor-pointer`}
+            className={`mx-auto block ${isGenerating ? "opacity-50" : ""} cursor-pointer`}
             onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
             onWheel={handleWheel}
+            style={{ position: 'relative', zIndex: 1 }}
           />
+          {/* Prominent loading animation */}
           {isGenerating && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white"></div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-70 rounded-lg z-10">
+              <div className="w-16 h-16 border-4 border-t-4 border-t-green-400 border-gray-200 rounded-full animate-spin mb-4"></div>
+              <div className="text-white text-lg font-bold tracking-wide animate-pulse">Processing...</div>
+              <div className="w-48 h-2 bg-gray-700 rounded-full mt-2">
+                <div 
+                  className="h-full bg-green-400 rounded-full transition-all duration-300"
+                  style={{ width: `${computationProgress}%` }}
+                ></div>
+              </div>
             </div>
           )}
         </div>
@@ -483,13 +517,40 @@ export default function FractalGenerator() {
           <CardContent className="pt-6">
             <div className="space-y-4">
               <div className="space-y-2">
+                <Label htmlFor="fractal-type">Fractal Type</Label>
+                <Select
+                  value={fractalType}
+                  onValueChange={(value: string) => {
+                    setFractalType(value)
+                    setIterations(100)
+                    resetView()
+                  }}
+                >
+                  <SelectTrigger id="fractal-type">
+                    <SelectValue placeholder="Select fractal type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FRACTAL_TYPES.MANDELBROT}>Mandelbrot Set</SelectItem>
+                    <SelectItem value={FRACTAL_TYPES.JULIA}>Julia Set</SelectItem>
+                    <SelectItem value={FRACTAL_TYPES.BURNING_SHIP}>Burning Ship</SelectItem>
+                    <SelectItem value={FRACTAL_TYPES.SIERPINSKI}>Sierpinski Triangle</SelectItem>
+                    <SelectItem value={FRACTAL_TYPES.IFS_FERN}>IFS Fern</SelectItem>
+                    <SelectItem value={FRACTAL_TYPES.NEWTON}>Newton Fractal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
                 <Label>Iterations: {iterations}</Label>
                 <Slider
                   value={[iterations]}
                   min={10}
                   max={1000}
                   step={10}
-                  onValueChange={(value: number[]) => setIterations(value[0])}
+                  onValueChange={(value: number[]) => {
+                    setIterations(value[0])
+                    setComputationProgress(0)
+                  }}
                   onValueCommit={() => generateFractal()}
                 />
               </div>
@@ -507,6 +568,7 @@ export default function FractalGenerator() {
             <li>Click to center the view at that point</li>
             <li>Use mouse wheel to zoom in/out at cursor position</li>
             <li>Higher iterations give more detail but are slower</li>
+            <li>Try different fractal types for varied patterns</li>
           </ul>
         </div>
       </div>
