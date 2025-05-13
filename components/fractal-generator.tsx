@@ -34,6 +34,10 @@ export default function FractalGenerator() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [viewStart, setViewStart] = useState({ x: 0, y: 0 })
   const [computationProgress, setComputationProgress] = useState(0)
+  const [zoomLevel, setZoomLevel] = useState(1)
+  const [isSegmentifying, setIsSegmentifying] = useState(false)
+  const [selectionRect, setSelectionRect] = useState({ x: 0, y: 0, width: 0, height: 0 })
+  const [isDrawing, setIsDrawing] = useState(false)
 
   // Handle window resize
   useEffect(() => {
@@ -56,30 +60,149 @@ export default function FractalGenerator() {
     generateFractal()
   }, [canvasSize, fractalType])
 
-  // Mouse drag handlers for panning or segmentify
+  // Handle mouse events for segmentify
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsDragging(true)
-    setDragStart({ x: e.clientX, y: e.clientY })
-    setViewStart({ x: centerX, y: centerY })
+    if (isSegmentifying) {
+      setIsDrawing(true)
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      setSelectionRect({ x, y, width: 0, height: 0 })
+      setDragStart({ x: e.clientX, y: e.clientY })
+    } else {
+      setIsDragging(true)
+      setDragStart({ x: e.clientX, y: e.clientY })
+      setViewStart({ x: centerX, y: centerY })
+    }
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging) return
     const canvas = canvasRef.current
     if (!canvas) return
-    const dx = e.clientX - dragStart.x
-    const dy = e.clientY - dragStart.y
-    // Convert pixel movement to fractal coordinates
-    const scaleX = 5 / (zoom * canvas.width)
-    const scaleY = 3 / (zoom * canvas.height)
-    setCenterX(viewStart.x - dx * scaleX)
-    setCenterY(viewStart.y - dy * scaleY)
-    generateFractal()
+
+    if (isSegmentifying && isDrawing) {
+      const rect = canvas.getBoundingClientRect()
+      const startX = dragStart.x - rect.left
+      const startY = dragStart.y - rect.top
+      const currentX = e.clientX - rect.left
+      const currentY = e.clientY - rect.top
+
+      // Calculate the base dimensions
+      let width = Math.abs(currentX - startX)
+      let height = Math.abs(currentY - startY)
+
+      // Maintain 4:3 aspect ratio
+      const targetAspectRatio = 4 / 3
+      const currentAspectRatio = width / height
+
+      if (currentAspectRatio > targetAspectRatio) {
+        // Too wide, adjust height
+        height = width / targetAspectRatio
+      } else {
+        // Too tall, adjust width
+        width = height * targetAspectRatio
+      }
+
+      // Calculate the new position to maintain the starting point
+      let x = Math.min(startX, currentX)
+      let y = Math.min(startY, currentY)
+
+      // Adjust position to maintain aspect ratio from the starting point
+      if (currentX < startX) {
+        x = startX - width
+      }
+      if (currentY < startY) {
+        y = startY - height
+      }
+
+      // Ensure the rectangle stays within canvas bounds
+      x = Math.max(0, Math.min(x, canvas.width - width))
+      y = Math.max(0, Math.min(y, canvas.height - height))
+
+      setSelectionRect({ x, y, width, height })
+    } else if (isDragging) {
+      const dx = e.clientX - dragStart.x
+      const dy = e.clientY - dragStart.y
+      const scaleX = 5 / (zoom * canvas.width)
+      const scaleY = 3 / (zoom * canvas.height)
+      setCenterX(viewStart.x - dx * scaleX)
+      setCenterY(viewStart.y - dy * scaleY)
+      generateFractal()
+    }
   }
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsDragging(false)
+    if (isSegmentifying && isDrawing) {
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      // Convert selection rectangle to fractal coordinates
+      const xMin = centerX - 2.5 / zoom
+      const xMax = centerX + 2.5 / zoom
+      const yMin = centerY - 1.5 / zoom
+      const yMax = centerY + 1.5 / zoom
+
+      // Calculate the fractal coordinates of the selection corners
+      const selectionXMin = xMin + ((xMax - xMin) * selectionRect.x) / canvas.width
+      const selectionXMax = xMin + ((xMax - xMin) * (selectionRect.x + selectionRect.width)) / canvas.width
+      const selectionYMin = yMin + ((yMax - yMin) * selectionRect.y) / canvas.height
+      const selectionYMax = yMin + ((yMax - yMin) * (selectionRect.y + selectionRect.height)) / canvas.height
+
+      // Calculate the width and height in fractal coordinates
+      const selectionWidth = selectionXMax - selectionXMin
+      const selectionHeight = selectionYMax - selectionYMin
+
+      // Calculate new center point
+      const newCenterX = (selectionXMin + selectionXMax) / 2
+      const newCenterY = (selectionYMin + selectionYMax) / 2
+
+      // Calculate new zoom level to fit the selection
+      // The fractal view is 5 units wide and 3 units tall at zoom level 1
+      const newZoom = zoom * (5 / selectionWidth)
+
+      // Update state and generate fractal immediately
+      setCenterX(newCenterX)
+      setCenterY(newCenterY)
+      setZoom(newZoom)
+      setZoomLevel(zoomLevel * (5 / selectionWidth))
+      setIsSegmentifying(false)
+      setIsDrawing(false)
+      setSelectionRect({ x: 0, y: 0, width: 0, height: 0 })
+      
+      // Generate fractal immediately after state updates
+      requestAnimationFrame(() => {
+        generateFractal()
+      })
+    } else {
+      setIsDragging(false)
+    }
   }
+
+  // Draw selection rectangle
+  const drawSelectionRect = () => {
+    const canvas = canvasRef.current
+    if (!canvas || !isDrawing) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Clear previous rectangle
+    generateFractal()
+
+    // Draw new rectangle
+    ctx.strokeStyle = '#00ff00'
+    ctx.lineWidth = 2
+    ctx.setLineDash([5, 5])
+    ctx.strokeRect(selectionRect.x, selectionRect.y, selectionRect.width, selectionRect.height)
+  }
+
+  // Update canvas when selection rectangle changes
+  useEffect(() => {
+    if (isDrawing) {
+      drawSelectionRect()
+    }
+  }, [selectionRect])
 
   // Mouse event handlers for canvas interaction
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -111,6 +234,55 @@ export default function FractalGenerator() {
     setZoom(newZoom)
     setCenterX(newCenterX)
     setCenterY(newCenterY)
+    setZoomLevel(zoomLevel * zoomFactor)
+    generateFractal()
+  }
+
+  // Handle double click to zoom in at point
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+
+    // Convert mouse position to fractal coordinates
+    const xMin = centerX - 2.5 / zoom
+    const xMax = centerX + 2.5 / zoom
+    const yMin = centerY - 1.5 / zoom
+    const yMax = centerY + 1.5 / zoom
+
+    const mouseFractalX = xMin + ((xMax - xMin) * mouseX) / canvas.width
+    const mouseFractalY = yMin + ((yMax - yMin) * mouseY) / canvas.height
+
+    // Zoom in by a factor of 2
+    const newZoom = zoom * 2
+    setZoom(newZoom)
+    setCenterX(mouseFractalX)
+    setCenterY(mouseFractalY)
+    setZoomLevel(zoomLevel * 2)
+    generateFractal()
+  }
+
+  // Handle zoom controls
+  const handleZoomIn = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const newZoom = zoom * 1.5
+    setZoom(newZoom)
+    setZoomLevel(zoomLevel * 1.5)
+    generateFractal()
+  }
+
+  const handleZoomOut = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const newZoom = zoom / 1.5
+    setZoom(newZoom)
+    setZoomLevel(zoomLevel / 1.5)
     generateFractal()
   }
 
@@ -449,8 +621,43 @@ export default function FractalGenerator() {
     if (iter === maxIter) {
       return { r: 0, g: 0, b: 0 } // Black for points in the set
     }
-    const val = Math.floor((iter / maxIter) * 255)
-    return { r: val, g: val, b: val }
+
+    // Parse the hex colors
+    const primary = hexToRgb(primaryColor)
+    const secondary = hexToRgb(secondaryColor)
+    
+    if (!primary || !secondary) {
+      // Fallback to grayscale if colors are invalid
+      const val = Math.floor((iter / maxIter) * 255)
+      return { r: val, g: val, b: val }
+    }
+
+    // Interpolate between primary and secondary colors with enhanced visibility
+    const t = Math.pow(iter / maxIter, 0.5) // Square root for better contrast
+    const brightness = 2.0 // Increase brightness by 100%
+    const contrast = 1.5 // Increase contrast
+    
+    // Calculate base colors with brightness
+    const r = Math.min(255, Math.floor((primary.r * (1 - t) + secondary.r * t) * brightness))
+    const g = Math.min(255, Math.floor((primary.g * (1 - t) + secondary.g * t) * brightness))
+    const b = Math.min(255, Math.floor((primary.b * (1 - t) + secondary.b * t) * brightness))
+    
+    // Apply contrast
+    return {
+      r: Math.min(255, Math.floor(((r - 128) * contrast) + 128)),
+      g: Math.min(255, Math.floor(((g - 128) * contrast) + 128)),
+      b: Math.min(255, Math.floor(((b - 128) * contrast) + 128))
+    }
+  }
+
+  // Helper function to convert hex to RGB
+  const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : null
   }
 
   // Save the fractal as an image
@@ -471,6 +678,7 @@ export default function FractalGenerator() {
     setCenterX(0)
     setCenterY(0)
     setZoom(1)
+    setZoomLevel(1)
     generateFractal()
   }
 
@@ -487,14 +695,57 @@ export default function FractalGenerator() {
             ref={canvasRef}
             width={canvasSize.width}
             height={canvasSize.height}
-            className={`mx-auto block ${isGenerating ? "opacity-50" : ""} cursor-pointer`}
+            className={`mx-auto block ${isGenerating ? "opacity-50" : ""} ${isSegmentifying ? "cursor-crosshair" : "cursor-pointer"}`}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             onWheel={handleWheel}
+            onDoubleClick={handleDoubleClick}
             style={{ position: 'relative', zIndex: 1 }}
           />
+          {/* Zoom controls */}
+          <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20">
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={handleZoomIn}
+              className="bg-gray-800 hover:bg-gray-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={handleZoomOut}
+              className="bg-gray-800 hover:bg-gray-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </Button>
+          </div>
+          {/* Zoom level indicator */}
+          <div className="absolute bottom-4 left-4 bg-gray-800 px-3 py-1 rounded-full text-sm text-gray-300 z-20">
+            Zoom: {zoomLevel.toFixed(1)}x
+          </div>
+          {/* Segmentify button */}
+          <div className="absolute top-4 right-4 z-20">
+            <Button
+              variant={isSegmentifying ? "destructive" : "secondary"}
+              onClick={() => {
+                setIsSegmentifying(!isSegmentifying)
+                setIsDrawing(false)
+                setSelectionRect({ x: 0, y: 0, width: 0, height: 0 })
+              }}
+              className="bg-gray-800 hover:bg-gray-700"
+            >
+              {isSegmentifying ? "Cancel" : "Segmentify"}
+            </Button>
+          </div>
           {/* Prominent loading animation */}
           {isGenerating && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-70 rounded-lg z-10">
@@ -555,6 +806,139 @@ export default function FractalGenerator() {
                 />
               </div>
 
+              {/* Julia Set Controls */}
+              {fractalType === FRACTAL_TYPES.JULIA && (
+                <div className="space-y-4 p-4 border rounded-lg bg-gray-800/50">
+                  <h3 className="font-medium text-sm">Julia Set Parameters</h3>
+                  <div className="space-y-2">
+                    <Label>Real Component: {juliaConstant.x.toFixed(3)}</Label>
+                    <Slider
+                      value={[juliaConstant.x]}
+                      min={-2}
+                      max={2}
+                      step={0.001}
+                      onValueChange={(value: number[]) => {
+                        setJuliaConstant(prev => ({ ...prev, x: value[0] }))
+                        setComputationProgress(0)
+                      }}
+                      onValueCommit={() => generateFractal()}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Imaginary Component: {juliaConstant.y.toFixed(3)}</Label>
+                    <Slider
+                      value={[juliaConstant.y]}
+                      min={-2}
+                      max={2}
+                      step={0.001}
+                      onValueChange={(value: number[]) => {
+                        setJuliaConstant(prev => ({ ...prev, y: value[0] }))
+                        setComputationProgress(0)
+                      }}
+                      onValueCommit={() => generateFractal()}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setJuliaConstant({ x: -0.7, y: 0.27 })
+                        generateFractal()
+                      }}
+                    >
+                      Reset
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setJuliaConstant({
+                          x: Math.random() * 4 - 2,
+                          y: Math.random() * 4 - 2
+                        })
+                        generateFractal()
+                      }}
+                    >
+                      Random
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Color Controls */}
+              <div className="space-y-4 p-4 border rounded-lg bg-gray-800/50">
+                <h3 className="font-medium text-sm">Color Settings</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="primary-color">Primary Color</Label>
+                  <div className="flex gap-2">
+                    <input
+                      id="primary-color-picker"
+                      type="color"
+                      value={primaryColor}
+                      onChange={(e) => {
+                        setPrimaryColor(e.target.value)
+                        generateFractal()
+                      }}
+                      className="w-10 h-10 rounded cursor-pointer"
+                      aria-label="Primary color picker"
+                    />
+                    <input
+                      id="primary-color-text"
+                      type="text"
+                      value={primaryColor}
+                      onChange={(e) => {
+                        setPrimaryColor(e.target.value)
+                        generateFractal()
+                      }}
+                      className="flex-1 px-2 py-1 bg-gray-700 rounded text-sm"
+                      aria-label="Primary color hex value"
+                      placeholder="#RRGGBB"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="secondary-color">Secondary Color</Label>
+                  <div className="flex gap-2">
+                    <input
+                      id="secondary-color-picker"
+                      type="color"
+                      value={secondaryColor}
+                      onChange={(e) => {
+                        setSecondaryColor(e.target.value)
+                        generateFractal()
+                      }}
+                      className="w-10 h-10 rounded cursor-pointer"
+                      aria-label="Secondary color picker"
+                    />
+                    <input
+                      id="secondary-color-text"
+                      type="text"
+                      value={secondaryColor}
+                      onChange={(e) => {
+                        setSecondaryColor(e.target.value)
+                        generateFractal()
+                      }}
+                      className="flex-1 px-2 py-1 bg-gray-700 rounded text-sm"
+                      aria-label="Secondary color hex value"
+                      placeholder="#RRGGBB"
+                    />
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    setPrimaryColor("#000000")
+                    setSecondaryColor("#ffffff")
+                    generateFractal()
+                  }}
+                >
+                  Reset Colors
+                </Button>
+              </div>
+
               <Button className="w-full" onClick={generateFractal} disabled={isGenerating}>
                 {isGenerating ? "Generating..." : "Generate Fractal"}
               </Button>
@@ -565,10 +949,14 @@ export default function FractalGenerator() {
         <div className="mt-6 text-sm text-gray-400">
           <h3 className="font-medium mb-2">Tips:</h3>
           <ul className="list-disc pl-5 space-y-1">
-            <li>Click to center the view at that point</li>
-            <li>Use mouse wheel to zoom in/out at cursor position</li>
+            <li>Double-click to zoom in at that point</li>
+            <li>Use mouse wheel or zoom buttons to zoom in/out</li>
+            <li>Click and drag to pan around</li>
+            <li>Click "Segmentify" to draw a rectangle and zoom into that area</li>
             <li>Higher iterations give more detail but are slower</li>
             <li>Try different fractal types for varied patterns</li>
+            <li>For Julia set, adjust the real and imaginary components to create different patterns</li>
+            <li>Use the color pickers to customize the fractal's appearance</li>
           </ul>
         </div>
       </div>
