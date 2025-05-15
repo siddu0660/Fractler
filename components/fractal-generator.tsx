@@ -26,8 +26,8 @@ export default function FractalGenerator() {
   const [centerX, setCenterX] = useState(0)
   const [centerY, setCenterY] = useState(0)
   const [juliaConstant, setJuliaConstant] = useState({ x: -0.7, y: 0.27 })
-  const [primaryColor, setPrimaryColor] = useState("#ff0000")
-  const [secondaryColor, setSecondaryColor] = useState("#0000ff")
+  const [primaryColor, setPrimaryColor] = useState("#000000")
+  const [secondaryColor, setSecondaryColor] = useState("#ffffff")
   const [isGenerating, setIsGenerating] = useState(false)
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
   const [isDragging, setIsDragging] = useState(false)
@@ -726,6 +726,25 @@ export default function FractalGenerator() {
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
+            </Button>
+          </div>
+          {/* Save Image Buttons */}
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => saveImage("png")}
+              className="bg-gray-800 hover:bg-gray-700"
+            >
+              Save as PNG
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => saveImage("jpeg")}
+              className="bg-gray-800 hover:bg-gray-700"
+            >
+              Save as JPEG
             </Button>
           </div>
           {/* Zoom level indicator */}
